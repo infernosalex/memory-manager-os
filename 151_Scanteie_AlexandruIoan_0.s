@@ -1,9 +1,10 @@
 .data
     format_scanf: .asciz "%d \n"         
     format_printf: .asciz "%d "
-    format_memory_get: .asciz "(%d,%d)\n"    
+    format_memory_get: .asciz "(%d, %d)\n" 
+    format_memory_add: .asciz "%d: (%d, %d)\n"   
     format_newline: .asciz "\n"  
-    n: .long 10
+    n: .long 20
     v: .space 4096 # 4 * 1024
     auxVar: .long 0
 
@@ -11,7 +12,7 @@
 # movl  $2, (%edi,%ecx,4) v[i] =2 
 
 .text
-print_vector:
+print_vector: # void print_vector()
     pushl %ebp
     movl %esp, %ebp
 
@@ -83,62 +84,124 @@ print_vectorRange: # void print_vectorRange(a,b)
         popl %ebp
         ret
 
-find_zeros_cont:
+memory_add: # void memory_add(int fd, int size)
     pushl %ebp
     movl %esp, %ebp
 
     pushl $0 # start -4(%ebp)
     pushl $0 # lenght -8(%ebp)
+    pushl $0 # ok -12(%ebp)
+    pushl $0 # blocuri -16(%ebp)
 
     movl $0, %ecx  # i = 0
     lea v, %edi # %edi = *(v[0])
 
-    find_zeros_cont_loop:
+    movl 12(%ebp), %eax # file size
+    pushl %eax # file size 
+
+    xorl %edx, %edx
+    movl $8, %ebx
+    div %ebx 
+    
+
+    cmpl $0, %edx
+    je set_blocuri
+    incl %eax
+
+    set_blocuri: # eax = nr blocuri = [size(kb)/8(kb)]
+        movl %eax, -16(%ebp)
+
+
+    memory_add_loop:
         # for(int i = 0; i < n; i++){
-        #     if(v[i] ==0){
+        #     if(v[i] == 0){
         #         start = i;
         #         length = 0;
         #     }
         #     while(v[i] == 0){
         #         length++;
-        #         if(length >= blocuri){
+        #         if(length == blocuri){
         #             adaugi fisierul
         #         }
         #     }
         # }
 
         cmp n, %ecx  # ecx >= n
-        jge find_zeros_cont_exit
+        jge memory_add_not_find
 
         cmp $0,(%edi,%ecx,4) 
-        jne find_zeros_cont_start
+        jne memory_add_continue
 
         movl %ecx, -4(%ebp) # start = i;
-        movl $0, -8(%ebp) # lenght = 0
+        movl $0, -8(%ebp) # lenght = 0;
+        movl $1, -12(%ebp) # ok = 1;
 
+        memory_add_while:
+            cmp n, %ecx  # ecx >= n
+            jge memory_add_not_find
 
-    find_zeros_cont_start:
-        cmp n, %ecx  # ecx >= n
-        je print_vector_exit
+            cmpl $0, (%edi, %ecx, 4)
+            jne memory_add_continue
+            
+            incl -8(%ebp) # lenght ++
+            incl %ecx
 
+            movl -8(%ebp), %edx
+            cmpl %edx,-16(%ebp) #  if(length == blocuri)
+            je find_space_for_file
+            jmp memory_add_while
 
-    find_zeros_cont_exit:
-        pushl $format_newline
+    memory_add_continue:    
+        incl %ecx
+        jmp memory_add_loop
+
+    find_space_for_file: # set (start,start+blocuri) = fd
+        movl -4(%ebp), %ecx
+        movl -16(%ebp), %ebx
+        addl %ecx, %ebx # ebx = start + blocuri
+        
+        find_space_for_file_loop:
+            cmp %ebx, %ecx
+            jge memory_add_print
+
+            movl 8(%ebp), %edx
+            movl %edx, (%edi,%ecx,4) # v[i] = fd;
+
+            incl %ecx
+            jmp find_space_for_file_loop 
+        decl %ebx
+
+    memory_add_not_find:
+        movl $0, -4(%ebp)
+        movl $0, %ebx
+
+    memory_add_print:
+        pushl %ebx
+        pushl -4(%ebp)
+        pushl 8(%ebp)
+        pushl $format_memory_add
         call printf
         popl %edx
+        popl %edx
+        popl %edx
+        popl %edx
 
+    memory_add_exit:
         popl %edx
         popl %edx
+        popl %edx
+        popl %edx
+
+        popl %edx # for eax
 
         popl %ebp
         ret
-memory_add:
-
 memory_get: # void memory_get(int fd)
     pushl %ebp
     movl %esp, %ebp
     pushl $0 # start -4(%ebp)
     pushl $0 # end -8(%ebp)
+    pushl $0 # ok -12(%ebp)
 
     movl $0, %ecx  # i = 0
     lea v, %edi # %edi = *(v[0])
@@ -152,12 +215,13 @@ memory_get: # void memory_get(int fd)
         cmp %eax, (%edi,%ecx,4) # if (fd == v[i])
         jne memory_get_continue
 
-        cmp $0,-4(%ebp) # if (start == 0)
+        cmp $0,-12(%ebp) # if (ok == 0)
         je set_start
         jmp set_end
 
         set_start:
             movl %ecx, -4(%ebp) # start = i
+            movl $1,-12(%ebp) 
         set_end:
             movl %ecx, -8(%ebp) # end = i
 
@@ -174,6 +238,7 @@ memory_get: # void memory_get(int fd)
         popl %edx
         popl %edx
 
+        popl %edx
         popl %edx
         popl %edx
 
@@ -206,6 +271,12 @@ memory_delete: # void memory_delete(int fd)
     memory_delete_exit:
         popl %ebp
         ret
+
+memory_defragmentation: # void memory_defragmentation()
+    
+
+    
+
 
 scanf_vector:
     pushl %ebp
@@ -242,18 +313,42 @@ scanf_vector:
         ret
 
 
+
+
+
 .global main
 main:
-    call scanf_vector
-    call print_vector
+    # call scanf_vector
+    # call print_vector
 
-    pushl $10
+    pushl $28
+    pushl $5 # 23 / 8
+    call memory_add
+    popl %edx
+
+    pushl $20
+    pushl $3 # 23 / 8
+    call memory_add
+    popl %edx
+
+    pushl $16
+    pushl $2 # 23 / 8
+    call memory_add
+    popl %edx
+
+    pushl $3 # delete 2
     call memory_delete
     popl %edx
+
+
 
     call print_vector
 
 et_exit:
+    pushl $0
+    call fflush
+    popl %ebx
+
     movl $1, %eax                     # Exit status
     movl $0, %ebx                     # Exit status
     int $0x80                         # Exit
