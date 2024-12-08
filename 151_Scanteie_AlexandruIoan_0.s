@@ -10,12 +10,9 @@
     fileDescriptor: .long 0
     numberFiles: .long 0
     fileSize: .long 0
-    n: .long 20
+    n: .long 1024
     v: .space 4096 # 4 * 1024
 
-
-# movl  %ecx, (%edi,%ecx,4)  v[i] = i , %ecx = i
-# movl  $2, (%edi,%ecx,4) v[i] =2 
 
 .text
 print_vector: # void print_vector()
@@ -342,8 +339,8 @@ print_all_files_fd_start_end: # void print_fd_start_end()
         cmpl %ecx, %edx
         je print_all_files_fd_start_end_continue
         
-        # cmpl $0, %ecx # #TODO
-
+        cmpl $0, %edx # Avoid print zero's
+        je avoid_print_zero
 
         movl %ebx, %edx # [a,b) edx = ebx-1
         decl %edx
@@ -471,7 +468,6 @@ menu: # void menu()
                 # popl %edx
                 # popl %edx
 
-                xorl %ecx, %ecx
 
                 pushl $numberFiles # 
                 pushl $format_scanf
@@ -485,15 +481,16 @@ menu: # void menu()
                 # popl %edx
                 # popl %edx
 
+                xorl %ecx, %ecx
                 add_operation_loop:
-                    cmpl %ecx, numberFiles
+                    cmpl numberFiles, %ecx
                     jge add_operation_exit
 
-                    pushl %ecx
-                    pushl $format_printf
-                    call printf
-                    popl %edx
-                    popl %edx
+                    # pushl %ecx
+                    # pushl $format_printf
+                    # call printf
+                    # popl %edx
+                    # popl %edx
 
 
                     pushl %ecx
@@ -504,13 +501,13 @@ menu: # void menu()
                     popl %edx
                     popl %ecx
 
-                    pushl %ecx
-                    pushl $fileDescriptor # 
-                    pushl $format_scanf
-                    call printf
-                    popl %edx
-                    popl %edx
-                    popl %ecx
+                    # pushl %ecx
+                    # pushl $fileDescriptor # 
+                    # pushl $format_scanf
+                    # call printf
+                    # popl %edx
+                    # popl %edx
+                    # popl %ecx
 
                     pushl %ecx
                     pushl $fileSize # 
@@ -520,12 +517,15 @@ menu: # void menu()
                     popl %edx
                     popl %ecx
 
-
+                    pushl %ebx
+                    pushl %ecx
                     pushl fileSize
                     pushl fileDescriptor
                     call memory_add
                     popl %edx
                     popl %edx
+                    popl %ecx
+                    popl %ebx
 
                     incl %ecx
                     jmp add_operation_loop
@@ -560,7 +560,7 @@ menu: # void menu()
                 call memory_get
                 popl %edx
 
-                call print_vector
+                # call print_vector
 
                 jmp menu_loop_continue
         
@@ -615,36 +615,7 @@ menu: # void menu()
 
 .global main
 main:
-    # call scanf_vector
-    # call print_vector
-
-    # pushl $28
-    # pushl $5 # 23 / 8
-    # call memory_add
-    # popl %edx
-
-    # # call print_vector
-
-    # pushl $20
-    # pushl $3 # 23 / 8
-    # call memory_add
-    # popl %edx
-
-    # pushl $16
-    # pushl $2 # 23 / 8
-    # call memory_add
-    # popl %edx
-
-    # pushl $3 # delete 3
-    # call memory_delete
-    # popl %edx
-
-    # call print_vector
-    
-    # call memory_defragmentation
     call menu
-    # call print_vector
-
 
 et_exit:
     pushl $0
