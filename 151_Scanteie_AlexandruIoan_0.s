@@ -3,10 +3,16 @@
     format_printf: .asciz "%d "
     format_memory_get: .asciz "(%d, %d)\n" 
     format_memory_add: .asciz "%d: (%d, %d)\n"   
-    format_newline: .asciz "\n"  
+    format_newline: .asciz "\n" 
+    auxVar: .long 0
+    nrOperatii: .long 0
+    tipOperatie: .long 0 
+    fileDescriptor: .long 0
+    numberFiles: .long 0
+    fileSize: .long 0
     n: .long 20
     v: .space 4096 # 4 * 1024
-    auxVar: .long 0
+
 
 # movl  %ecx, (%edi,%ecx,4)  v[i] = i , %ecx = i
 # movl  $2, (%edi,%ecx,4) v[i] =2 
@@ -126,10 +132,10 @@ memory_add: # void memory_add(int fd, int size)
         #     }
         # }
 
-        cmp n, %ecx  # ecx >= n
+        cmpl n, %ecx  # ecx >= n
         jge memory_add_not_find
 
-        cmp $0,(%edi,%ecx,4) 
+        cmpl $0,(%edi,%ecx,4) 
         jne memory_add_continue
 
         movl %ecx, -4(%ebp) # start = i;
@@ -169,13 +175,14 @@ memory_add: # void memory_add(int fd, int size)
 
             incl %ecx
             jmp find_space_for_file_loop 
-        decl %ebx
+        
 
     memory_add_not_find:
         movl $0, -4(%ebp)
-        movl $0, %ebx
+        movl $1, %ebx
 
     memory_add_print:
+        decl %ebx
         pushl %ebx
         pushl -4(%ebp)
         pushl 8(%ebp)
@@ -215,7 +222,7 @@ memory_get: # void memory_get(int fd)
         cmp %eax, (%edi,%ecx,4) # if (fd == v[i])
         jne memory_get_continue
 
-        cmp $0,-12(%ebp) # if (ok == 0)
+        cmpl $0,-12(%ebp) # if (ok == 0)
         je set_start
         jmp set_end
 
@@ -273,12 +280,103 @@ memory_delete: # void memory_delete(int fd)
         ret
 
 memory_defragmentation: # void memory_defragmentation()
-    
+    pushl %ebp
+    movl %esp, %ebp
 
-    
+    # eax = a 
+    # ebx = b
+
+    # se muta ambele daca v[b] != 0
+    # se muta b daca v[b] == 0
+
+    xorl %eax, %eax
+    xorl %ebx, %ebx
+
+    lea v, %edi # %edi = *(v[0])
+
+    memory_defragmentation_loop:
+        cmpl n, %ebx  # ebx >= n
+        jge memory_defragmentation_zeros_final
+
+        movl (%edi,%ebx,4), %ecx
+        movl %ecx, (%edi,%eax,4)
+
+        cmpl $0, (%edi,%ebx,4) # if(v[b] == 0)
+        je memory_defragmentation_continue
+
+        incl %eax
+
+        memory_defragmentation_continue:
+            incl %ebx
+            jmp memory_defragmentation_loop 
+
+    memory_defragmentation_zeros_final:
+        cmp n, %eax  # eax >= n
+        jge memory_defragmentation_exit
+
+        xorl %ebx, %ebx
+        movl %ebx, (%edi,%eax,4)
+
+        incl %eax
+        jmp memory_defragmentation_zeros_final
+
+    memory_defragmentation_exit:
+        call print_all_files_fd_start_end
+        popl %ebp
+        ret
+        
+print_all_files_fd_start_end: # void print_fd_start_end()
+    pushl %ebp
+    movl %esp, %ebp
+
+    xorl %eax, %eax
+    xorl %ebx, %ebx
+
+    print_all_files_fd_start_end_loop:
+        cmpl n, %ebx
+        jg print_all_files_fd_start_end_exit
+
+        movl (%edi,%ebx,4), %ecx # ecx = v[b]
+        movl (%edi,%eax,4), %edx # edx = v[a]
+
+        cmpl %ecx, %edx
+        je print_all_files_fd_start_end_continue
+        
+        # cmpl $0, %ecx # #TODO
 
 
-scanf_vector:
+        movl %ebx, %edx # [a,b) edx = ebx-1
+        decl %edx
+
+        jmp print_all_files_fd_start_end_print
+
+    avoid_print_zero:
+        movl %ebx,%eax
+ 
+    print_all_files_fd_start_end_continue:
+        incl %ebx
+        jmp print_all_files_fd_start_end_loop
+
+    print_all_files_fd_start_end_print:
+        pushl %edx
+        pushl %eax
+        pushl (%edi,%eax,4)
+        pushl $format_memory_add
+        call printf
+        popl %eax
+        popl %eax
+        popl %eax
+        popl %eax
+
+        movl %ebx,%eax
+        jmp print_all_files_fd_start_end_continue
+
+
+    print_all_files_fd_start_end_exit:
+        popl %ebp
+        ret
+
+scanf_vector: # void scanf_vector()
     pushl %ebp
     movl %esp, %ebp
 
@@ -315,34 +413,238 @@ scanf_vector:
 
 
 
+menu: # void menu()
+    # – 1 - ADD
+    # – 2 - GET
+    # – 3 - DELETE
+    # – 4 - DEFRAGMENTATION
+
+    pushl %ebp
+    movl %esp, %ebp
+
+    pushl $nrOperatii # 
+    pushl $format_scanf
+    call scanf
+    popl %edx
+    popl %edx
+
+    # pushl nrOperatii # 
+    # pushl $format_printf
+    # call printf
+    # popl %edx
+    # popl %edx
+
+    # pushl $nrOperatii # -4(%ebp) nrOperatii
+    xorl %ecx, %ecx
+    menu_loop:
+        cmpl nrOperatii, %ecx  
+        jge menu_exit
+
+
+        pushl %ecx # %ecx caller saved
+        pushl $tipOperatie # 
+        pushl $format_scanf
+        call scanf
+        popl %edx
+        popl %edx
+        popl %ecx
+
+        # pushl tipOperatie # 
+        # pushl $format_printf
+        # call printf
+        # popl %edx
+        # popl %edx
+
+
+
+        operation_1:
+            movl $1, %ebx
+            cmpl tipOperatie, %ebx
+            je add_operation
+            jmp operation_2
+            add_operation:
+                pushl %ecx # To save old ecx
+
+                # pushl %ecx
+                # pushl $format_printf
+                # call printf
+                # popl %edx
+                # popl %edx
+
+                xorl %ecx, %ecx
+
+                pushl $numberFiles # 
+                pushl $format_scanf
+                call scanf
+                popl %edx
+                popl %edx
+
+                # pushl numberFiles # 
+                # pushl $format_printf
+                # call printf
+                # popl %edx
+                # popl %edx
+
+                add_operation_loop:
+                    cmpl %ecx, numberFiles
+                    jge add_operation_exit
+
+                    pushl %ecx
+                    pushl $format_printf
+                    call printf
+                    popl %edx
+                    popl %edx
+
+
+                    pushl %ecx
+                    pushl $fileDescriptor # 
+                    pushl $format_scanf
+                    call scanf
+                    popl %edx
+                    popl %edx
+                    popl %ecx
+
+                    pushl %ecx
+                    pushl $fileDescriptor # 
+                    pushl $format_scanf
+                    call printf
+                    popl %edx
+                    popl %edx
+                    popl %ecx
+
+                    pushl %ecx
+                    pushl $fileSize # 
+                    pushl $format_scanf
+                    call scanf
+                    popl %edx
+                    popl %edx
+                    popl %ecx
+
+
+                    pushl fileSize
+                    pushl fileDescriptor
+                    call memory_add
+                    popl %edx
+                    popl %edx
+
+                    incl %ecx
+                    jmp add_operation_loop
+                
+                add_operation_exit:
+                    popl %ecx
+                    jmp menu_loop_continue
+
+        operation_2:
+            movl $2, %ebx
+            cmpl tipOperatie, %ebx
+            je get_operation
+            jmp operation_3
+            get_operation:
+                pushl %ecx # %ecx caller saved
+
+                pushl $fileDescriptor # 
+                pushl $format_scanf
+                call scanf
+                popl %edx
+                popl %edx
+
+                # pushl fileDescriptor # 
+                # pushl $format_printf
+                # call printf
+                # popl %edx
+                # popl %ebx
+
+                popl %ecx
+
+                pushl fileDescriptor
+                call memory_get
+                popl %edx
+
+                call print_vector
+
+                jmp menu_loop_continue
+        
+        operation_3:
+            movl $3, %ebx
+            cmpl tipOperatie, %ebx
+            je delete_operation
+            jmp operation_4
+            delete_operation:
+                pushl %ecx # %ecx caller saved
+
+                pushl $fileDescriptor # 
+                pushl $format_scanf
+                call scanf
+                popl %edx
+                popl %edx
+
+                # pushl fileDescriptor # 
+                # pushl $format_printf
+                # call printf
+                # popl %edx
+                # popl %ebx
+
+                popl %ecx
+
+                pushl fileDescriptor
+                call memory_delete
+                popl %edx
+
+                call print_all_files_fd_start_end
+                # call print_vector
+                jmp menu_loop_continue
+        operation_4:
+            movl $4, %ebx
+            cmpl tipOperatie, %ebx
+            je defragmentation_operation
+            jmp menu_exit
+            defragmentation_operation:
+                call memory_defragmentation
+                # call print_vector
+                jmp menu_exit
+
+    menu_loop_continue:
+        incl %ecx
+        jmp menu_loop 
+
+    menu_exit:
+        popl %ebp
+        ret
+
+
 
 .global main
 main:
     # call scanf_vector
     # call print_vector
 
-    pushl $28
-    pushl $5 # 23 / 8
-    call memory_add
-    popl %edx
+    # pushl $28
+    # pushl $5 # 23 / 8
+    # call memory_add
+    # popl %edx
 
-    pushl $20
-    pushl $3 # 23 / 8
-    call memory_add
-    popl %edx
+    # # call print_vector
 
-    pushl $16
-    pushl $2 # 23 / 8
-    call memory_add
-    popl %edx
+    # pushl $20
+    # pushl $3 # 23 / 8
+    # call memory_add
+    # popl %edx
 
-    pushl $3 # delete 2
-    call memory_delete
-    popl %edx
+    # pushl $16
+    # pushl $2 # 23 / 8
+    # call memory_add
+    # popl %edx
 
+    # pushl $3 # delete 3
+    # call memory_delete
+    # popl %edx
 
+    # call print_vector
+    
+    # call memory_defragmentation
+    call menu
+    # call print_vector
 
-    call print_vector
 
 et_exit:
     pushl $0
