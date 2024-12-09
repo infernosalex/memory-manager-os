@@ -175,8 +175,16 @@ memory_add: # void memory_add(int fd, int size)
         
 
     memory_add_not_find:
-        movl $0, -4(%ebp)
-        movl $1, %ebx
+        # movl $0, -4(%ebp)
+        # movl $1, %ebx
+        pushl $0
+        pushl $0
+        pushl $format_memory_get
+        call printf
+        popl %edx
+        popl %edx
+        popl %edx
+        jmp memory_add_exit
 
     memory_add_print:
         decl %ebx
@@ -295,8 +303,8 @@ memory_defragmentation: # void memory_defragmentation()
         cmpl n, %ebx  # ebx >= n
         jge memory_defragmentation_zeros_final
 
-        movl (%edi,%ebx,4), %ecx
-        movl %ecx, (%edi,%eax,4)
+        movl (%edi,%ebx,4), %edx
+        movl %edx, (%edi,%eax,4)
 
         cmpl $0, (%edi,%ebx,4) # if(v[b] == 0)
         je memory_defragmentation_continue
@@ -556,9 +564,11 @@ menu: # void menu()
 
                 popl %ecx
 
+                pushl %ecx
                 pushl fileDescriptor
                 call memory_get
                 popl %edx
+                popl %ecx
 
                 # call print_vector
 
@@ -586,11 +596,15 @@ menu: # void menu()
 
                 popl %ecx
 
+                pushl %ecx
                 pushl fileDescriptor
                 call memory_delete
                 popl %edx
+                popl %ecx
 
+                pushl %ecx
                 call print_all_files_fd_start_end
+                popl %ecx
                 # call print_vector
                 jmp menu_loop_continue
         operation_4:
@@ -599,9 +613,13 @@ menu: # void menu()
             je defragmentation_operation
             jmp menu_exit
             defragmentation_operation:
+                pushl %ebx
+                pushl %ecx
                 call memory_defragmentation
+                popl %ecx
+                popl %ebx
                 # call print_vector
-                jmp menu_exit
+                jmp menu_loop_continue
 
     menu_loop_continue:
         incl %ecx

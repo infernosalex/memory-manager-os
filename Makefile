@@ -17,11 +17,11 @@ $(TARGET): $(SRC)
 
 # Run target
 run: $(TARGET)
-	./$(TARGET)
+	@./$(TARGET)
 
 # Input target
 input: $(TARGET)
-	./$(TARGET) < input.txt
+	@./$(TARGET) < input.txt
 
 # Clean rule
 clean:
