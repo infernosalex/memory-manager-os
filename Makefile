@@ -1,28 +1,41 @@
-# Makefile to compile 151_Scanteie_AlexandruIoan_0.s into vector / CHATGPT ;)
+# Makefile to compile and run vector and matrix programs with input from file
 
 # Compiler and flags
 CC = gcc
 CFLAGS = -g -m32
 
-# Target and source file
-TARGET = vector
-SRC = 151_Scanteie_AlexandruIoan_0.s
+# Source and target files
+VECTOR_SRC = 151_Scanteie_AlexandruIoan_0.s
+VECTOR_TARGET = vector
 
-# Default rule
-all: $(TARGET)
+MATRIX_SRC = 151_Scanteie_AlexandruIoan_1.s
+MATRIX_TARGET = matrix
 
-# Build target
-$(TARGET): $(SRC)
+# Default rule (does nothing)
+all:
+	@echo "Specify a target: vector or matrix"
+
+# Build targets
+vector: $(VECTOR_TARGET)
+
+$(VECTOR_TARGET): $(VECTOR_SRC)
 	$(CC) $(CFLAGS) $< -o $@
 
-# Run target
-run: $(TARGET)
-	@./$(TARGET)
+matrix: $(MATRIX_TARGET)
 
-# Input target
-input: $(TARGET)
-	@./$(TARGET) < input.txt
+$(MATRIX_TARGET): $(MATRIX_SRC)
+	$(CC) $(CFLAGS) $< -o $@
+
+# Combined run and input rule
+input: $(VECTOR_TARGET) $(MATRIX_TARGET)
+ifeq ($(MAKECMDGOALS),vector input)
+	@./$(VECTOR_TARGET) < input.txt
+else ifeq ($(MAKECMDGOALS),matrix input)
+	@./$(MATRIX_TARGET) < input.txt
+else
+	@echo "Invalid target for input. Use 'make vector input' or 'make matrix input'."
+endif
 
 # Clean rule
 clean:
-	rm -f $(TARGET)
+	rm -f $(VECTOR_TARGET) $(MATRIX_TARGET)
