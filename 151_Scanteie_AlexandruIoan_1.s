@@ -14,9 +14,9 @@
     i: .long 0
     j: .long 0
 
-    n: .long 8
-    n1: .long 9
-    m: .long 72 # n*(n+1) 1049600
+    n: .long 1024
+    n1: .long 1025
+    m: .long 1049600 # n*(n+1) 1049600
     v: .space 4198400 # 1025*1024*4 , 1025 = 1024 + 1 , 1 for border with -1 on the end of row
 
 .text
@@ -29,7 +29,7 @@ initialize_matrix: # void initialize_matrix()
 
     initialize_matrix_loop:
         cmpl n, %ecx  # ecx >= n 
-        jg initialize_matrix_exit
+        jge initialize_matrix_exit
 
         movl n, %eax
         incl %eax
@@ -43,7 +43,80 @@ initialize_matrix: # void initialize_matrix()
     initialize_matrix_exit:
         popl %ebp
         ret
+sum_vectorRange: # void sum_vectorRange(a,b)
+    pushl %ebp
+    movl %esp, %ebp
 
+    # movl 8(%ebp), %eax # a
+    # movl 12(%ebp), %ebx # b
+    # sum 16(%ebp)
+    movl 8(%ebp), %ecx    # i = a
+    lea v, %edi  # %edi = *(v[0])
+
+    sum_vectorRange_loop:
+        cmp 12(%ebp), %ecx  # ecx >= b
+        jg sum_vectorRange_exit
+
+        pushl %ecx # %ecx caller saved
+        pushl %eax
+        movl (%edi,%ecx,4),%eax
+        addl 16(%ebp),%eax
+        movl %eax, 16(%ebp)
+        popl %eax
+        popl %ecx
+
+        incl %ecx
+        jmp sum_vectorRange_loop 
+
+
+    sum_vectorRange_exit:
+        popl %ebp
+        ret
+remove_line: # void remove_line(linie)
+    pushl %ebp
+    movl %esp, %ebp
+
+    pushl $0 # -4(%ebp)  start
+    pushl $0 # -8(%ebp) 
+
+    movl 8(%ebp), %eax     # i = linie
+    movl n1, %ebx          # Load the global variable n1 into %ebx
+    imull %ebx, %eax       # Multiply %eax by %ebx (n1 * 8(%ebp))
+    movl %eax, -4(%ebp)    # Store the result in -4(%ebp)
+
+
+    # pushl -4(%ebp)
+    # pushl $format_printf
+    # call printf
+    # popl %edx
+    # popl %edx
+
+    movl -4(%ebp), %ecx
+
+    lea v, %edi  # %edi = *(v[0])
+
+    # movl n1, %ebx
+    # addl -4(%ebp),%ebx
+
+    remove_line_loop:
+        cmpl m, %ecx  # ecx >= b
+        jg remove_line_exit
+        # v[i]=v[i+n1-1] # (%edi,%ecx,4) 
+        movl n1, %ebx
+        addl %ecx,%ebx
+        # decl %ebx
+        movl (%edi,%ebx,4),%eax
+        movl %eax,(%edi,%ecx,4)
+        
+        incl %ecx
+        jmp remove_line_loop
+ 
+
+    remove_line_exit:
+        popl %edx
+        popl %edx
+        popl %ebp
+        ret
 print_vector: # void print_vector()
     pushl %ebp
     movl %esp, %ebp
@@ -149,6 +222,7 @@ memory_add: # void memory_add(int fd, int size)
     pushl $0 # lenght -8(%ebp)
     pushl $0 # ok -12(%ebp)
     pushl $0 # blocuri -16(%ebp)
+
     pushl $0 # starty -20(%ebp)     
     pushl $0 # endy -24(%ebp)
     pushl $0 # ok -28(%ebp)
@@ -188,7 +262,7 @@ memory_add: # void memory_add(int fd, int size)
         #     }
         # }
 
-        cmpl m, %ecx  # ecx >= n
+        cmpl m, %ecx  # ecx >= (n*(n+1))
         jge memory_add_not_find
 
         cmpl $0,(%edi,%ecx,4) 
@@ -199,7 +273,7 @@ memory_add: # void memory_add(int fd, int size)
         movl $1, -12(%ebp) # ok = 1;
 
         memory_add_while:
-            cmp m, %ecx  # ecx >= n
+            cmpl m, %ecx  # ecx >= m
             jge memory_add_not_find
 
             cmpl $0, (%edi, %ecx, 4)
@@ -240,8 +314,10 @@ memory_add: # void memory_add(int fd, int size)
         pushl $0        
         pushl $0
         pushl $0
-        pushl $format_memory_get
+        pushl 8(%ebp)
+        pushl $format_memory_add
         call printf
+        popl %edx
         popl %edx
         popl %edx        
         popl %edx
@@ -251,17 +327,17 @@ memory_add: # void memory_add(int fd, int size)
 
     memory_add_print:
         find_line:
-
+            # pushl %edx
             xorl %ecx,%ecx  # i = 0
             lea v, %edi # %edi = *(v[0])
 
             movl 8(%ebp), %eax # file descriptor
 
             find_line_loop:
-                cmp m, %ecx  # ecx >= m
+                cmpl m, %ecx  # ecx >= m
                 jge find_line_exit
 
-                cmp %eax, (%edi,%ecx,4) # if (fd == v[i])
+                cmpl %eax, (%edi,%ecx,4) # if (fd == v[i])
                 jne find_line_continue
 
                 pushl %eax # fd
@@ -275,6 +351,7 @@ memory_add: # void memory_add(int fd, int size)
                 jmp find_line_set_end
 
                 find_line_set_start:
+                    # popl %edx
                     movl %edx, -20(%ebp) # start = i
                     movl %edx, -24(%ebp)
                     movl $1,-28(%ebp) 
@@ -297,6 +374,11 @@ memory_add: # void memory_add(int fd, int size)
             pushl $format_memory_add
             call printf
             popl %edx
+
+            movl $0, -32(%ebp)
+            movl $0, -24(%ebp)
+            movl $0, -20(%ebp)
+            movl $0, -28(%ebp)
 
             popl %edx
             popl %edx
@@ -361,18 +443,23 @@ memory_get: # void memory_get(int fd)
             jmp memory_get_loop 
 
     memory_get_exit:
+        cmpl $0,-8(%ebp)
+        je memory_get_print
+
         decl -8(%ebp)
-        pushl -8(%ebp)
-        pushl -16(%ebp)
-        pushl -4(%ebp)
-        pushl -16(%ebp)
-        pushl $format_memory_get
-        call printf
-        popl %edx
-        popl %edx
-        popl %edx        
-        popl %edx
-        popl %edx
+
+        memory_get_print:
+            pushl -8(%ebp)
+            pushl -16(%ebp)
+            pushl -4(%ebp)
+            pushl -16(%ebp)
+            pushl $format_memory_get
+            call printf
+            popl %edx
+            popl %edx
+            popl %edx        
+            popl %edx
+            popl %edx
 
         popl %edx
         popl %edx
@@ -410,7 +497,6 @@ memory_delete: # void memory_delete(int fd)
         ret
 
 memory_defragmentation: # void memory_defragmentation()
-    # #TODO Remove null lines
     pushl %ebp
     movl %esp, %ebp
 
@@ -424,14 +510,15 @@ memory_defragmentation: # void memory_defragmentation()
     xorl %ebx, %ebx
 
     pushl $0 # -4(%ebp) linie
+    pushl $0 # -8(%ebp) sum_linie
     movl n, %ecx
 
     lea v, %edi # %edi = *(v[0])
     memory_defragmentation_loop_rows:
         cmpl %ecx, -4(%ebp)
-        je memory_defragmentation_exit
+        jge memory_defragmentation_exit
         memory_defragmentation_loop:
-            cmpl n, %ebx  # ebx >= m
+            cmpl n, %ebx  # ebx >= n
             jge memory_defragmentation_zeros_final
 
             movl (%edi,%ebx,4), %edx
@@ -454,7 +541,7 @@ memory_defragmentation: # void memory_defragmentation()
             movl %eax,%edx
             popl %eax # eax = a , edx = b-a
 
-            cmp %ebx, %eax  # eax >= n
+            cmpl %ebx, %eax  # eax >= b-a
             jge memory_defragmentation_multiline
 
             pushl %ebx
@@ -469,10 +556,61 @@ memory_defragmentation: # void memory_defragmentation()
             incl -4(%ebp)
 
     memory_defragmentation_exit:
-        popl %edx
-        call print_all_files_fd_start_end
-        popl %ebp
-        ret
+        remove_null_lines:
+            # make last line 0
+            movl $0, -4(%ebp)
+            xorl %ecx, %ecx
+
+            # Elements of line i : [(linie)*(n+1),(linie+1)*(n+1)-2] to avoid -1
+            # eax = linie + 1
+
+            remove_null_lines_loop:
+                movl -4(%ebp), %eax
+                cmpl n, %eax
+                je defrag_exit
+
+                movl n1, %ebx
+                imull %ebx,%eax
+                movl %eax, %ebx
+                addl n, %eax
+                decl %eax # avoid -1
+
+                pushl $0
+                pushl %eax
+                pushl %ebx
+                call sum_vectorRange
+                popl %edx
+                popl %edx
+                popl -8(%ebp)
+                
+                # pushl %edx
+                # pushl $format_printf
+                # call printf
+                # popl %edx
+                # popl %edx
+                
+
+                cmpl $0, -8(%ebp)
+                jne remove_null_lines_continue
+                
+
+                pushl -4(%ebp)
+                call remove_line
+                popl %edx
+
+
+            remove_null_lines_continue:
+                incl -4(%ebp)
+                # movl -4(%ebp),%eax
+                # incl %eax
+                jmp remove_null_lines_loop
+
+        defrag_exit:
+            popl %edx
+            popl %edx
+            call print_all_files_fd_start_end
+            popl %ebp
+            ret
         
 print_all_files_fd_start_end: # void print_fd_start_end()
     pushl %ebp
@@ -486,7 +624,7 @@ print_all_files_fd_start_end: # void print_fd_start_end()
     pushl $0 # -12(%ebp) endX
     pushl $0 # -16(%ebp) endY
     
-
+    lea v, %edi
     print_all_files_fd_start_end_loop:
         cmpl m, %ebx
         jg print_all_files_fd_start_end_exit
@@ -855,11 +993,15 @@ menu: # void menu()
             # jmp operation_5
             jmp menu_exit
             defragmentation_operation:
+                pushl %eax
                 pushl %ebx
                 pushl %ecx
+                pushl %edx
                 call memory_defragmentation
+                popl %edx
                 popl %ecx
                 popl %ebx
+                popl %eax
                 # call print_vector
                 jmp menu_loop_continue
         # operation_5:
@@ -888,81 +1030,10 @@ menu: # void menu()
 
 .global main
 main:
-    # call print_matrix
-    # call scanf_matrix
     call initialize_matrix
     # call print_matrix
-    # call print_vector
-
-    pushl $64
-    pushl $17
-    call memory_add
-    popl %edx
-    popl %edx    
-    
-    pushl $16
-    pushl $1
-    call memory_add
-    popl %edx
-    popl %edx    
-    
-    pushl $20
-    pushl $4
-    call memory_add
-    popl %edx
-    popl %edx
-
-    pushl $20
-    pushl $6
-    call memory_add
-    popl %edx
-    popl %edx
-
-    pushl $40
-    pushl $7
-    call memory_add
-    popl %edx
-    popl %edx
-
-    pushl $16
-    pushl $8
-    call memory_add
-    popl %edx
-    popl %edx
-
-    pushl $32
-    pushl $9
-    call memory_add
-    popl %edx
-    popl %edx
-
-
-    call print_matrix
-
-    pushl $1
-    call memory_delete
-    popl %edx
-
-    pushl $8
-    call memory_delete
-    popl %edx
-
-    pushl $63
-    pushl $19
-    call memory_add
-    popl %edx
-    popl %edx
-
-    pushl $7
-    call memory_delete
-    popl %edx
-
+    call menu
     # call print_all_files_fd_start_end
-
-    # call memory_defragmentation
-    call print_matrix
-    # call menu
-
 
 et_exit:
     pushl $0

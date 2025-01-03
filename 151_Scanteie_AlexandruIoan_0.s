@@ -179,8 +179,11 @@ memory_add: # void memory_add(int fd, int size)
         # movl $1, %ebx
         pushl $0
         pushl $0
-        pushl $format_memory_get
+        pushl 8(%ebp)
+        pushl $format_memory_add
+        # pushl $format_memory_get
         call printf
+        popl %edx
         popl %edx
         popl %edx
         popl %edx
