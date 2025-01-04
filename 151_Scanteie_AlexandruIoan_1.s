@@ -1,9 +1,16 @@
 .data
     format_scanf: .asciz "%d \n"         
     format_printf: .asciz "%d "
+    format_printfn: .asciz "%d\n"
     format_memory_get: .asciz "((%d, %d), (%d, %d))\n" 
     format_memory_add: .asciz "%d: ((%d, %d), (%d, %d))\n"   
     format_newline: .asciz "\n" 
+    
+    dir_path: .space 512
+    filename: .space 256
+    format_dir: .asciz "%s\n"
+    # format_file_info: .asciz "FD: %d, Size: %d KB\n"
+    format_file_info: .asciz "%d\n%d\n"
     auxVar: .long 0
     nrOperatii: .long 0
     tipOperatie: .long 0 
@@ -16,6 +23,7 @@
 
     n: .long 1024
     n1: .long 1025
+    # m: .long 1048576 # n*n
     m: .long 1049600 # n*(n+1) 1049600
     v: .space 4198400 # 1025*1024*4 , 1025 = 1024 + 1 , 1 for border with -1 on the end of row
 
@@ -509,108 +517,155 @@ memory_defragmentation: # void memory_defragmentation()
     xorl %eax, %eax
     xorl %ebx, %ebx
 
-    pushl $0 # -4(%ebp) linie
-    pushl $0 # -8(%ebp) sum_linie
-    movl n, %ecx
+    pushl $0 # -4(%ebp) fd
+    pushl $0 # -8(%ebp) free_blocks_until_end_row
 
-    lea v, %edi # %edi = *(v[0])
-    memory_defragmentation_loop_rows:
-        cmpl %ecx, -4(%ebp)
+    # eax start of first block free
+    # ebx end of block with a fd
+    # ecx = i
+    # edx = fd
+
+
+    memory_defragmentation_init: # Find first block free 
+        cmpl m, %eax  # eax >= m
         jge memory_defragmentation_exit
-        memory_defragmentation_loop:
-            cmpl n, %ebx  # ebx >= n
-            jge memory_defragmentation_zeros_final
 
-            movl (%edi,%ebx,4), %edx
-            movl %edx, (%edi,%eax,4)
+        cmpl $0, (%edi,%eax,4) # if(v[a] == 0)
+        je memory_defragmentation_init_exit
+        
+        incl %eax
+        jmp memory_defragmentation_init
+    memory_defragmentation_init_exit:
+        movl %eax, %ecx
+        
+    lea v, %edi # %edi = *(v[0])
+    memory_defragmentation_loop:
+        cmpl m, %ecx  # ecx >= m
+        jge memory_defragmentation_exit
 
-            cmpl $0, (%edi,%ebx,4) # if(v[b] == 0)
-            je memory_defragmentation_continue
+        # movl (%edi,%ebx,4), %edx
+        # movl %edx, (%edi,%eax,4)
 
-            incl %eax
+        cmpl $0, (%edi,%ecx,4) # if(v[ecx] == 0)
+        je memory_defragmentation_loop_continue
 
-            memory_defragmentation_continue:
+        movl %ecx, %ebx
+        movl (%edi,%ecx,4), %edx
+        movl %edx, -4(%ebp)
+
+        memory_defragmentation_loop2:
+            cmpl m, %ebx  # ebx >= m
+            jge memory_defragmentation_loop2_exit
+
+            cmpl %edx, (%edi,%ebx,4) # if(v[ebx] == fd)
+            jne memory_defragmentation_loop2_exit
+
+            memory_defragmentation_loop2_continue:
                 incl %ebx
-                jmp memory_defragmentation_loop 
+                jmp memory_defragmentation_loop2
 
-        memory_defragmentation_zeros_final:
-            pushl %eax
-            movl %eax,%edx
-            movl %ebx,%eax
-            subl %edx,%eax
-            movl %eax,%edx
-            popl %eax # eax = a , edx = b-a
+            memory_defragmentation_loop2_exit:
+                subl %ecx, %ebx # ebx = ebx - ecx
 
-            cmpl %ebx, %eax  # eax >= b-a
-            jge memory_defragmentation_multiline
-
-            pushl %ebx
-            xorl %ebx, %ebx
-            movl %ebx, (%edi,%eax,4)
-            popl %ebx
-
-            incl %eax
-            jmp memory_defragmentation_zeros_final
-            
-        memory_defragmentation_multiline:
-            incl -4(%ebp)
-
-    memory_defragmentation_exit:
-        remove_null_lines:
-            # make last line 0
-            movl $0, -4(%ebp)
-            xorl %ecx, %ecx
-
-            # Elements of line i : [(linie)*(n+1),(linie+1)*(n+1)-2] to avoid -1
-            # eax = linie + 1
-
-            remove_null_lines_loop:
-                movl -4(%ebp), %eax
-                cmpl n, %eax
-                je defrag_exit
-
-                movl n1, %ebx
-                imull %ebx,%eax
-                movl %eax, %ebx
-                addl n, %eax
-                decl %eax # avoid -1
-
-                pushl $0
+                # Calculate row and column
                 pushl %eax
-                pushl %ebx
-                call sum_vectorRange
+                xorl %edx, %edx
+                divl n1
+                popl %eax # eax = row, edx = column
+                
+                # Free blocks until end of row
+                movl $1024, -8(%ebp)
+                subl %edx, -8(%ebp) # -8(%ebp) = n - edx
+
+                cmpl %ebx, n1
+                jge memory_defragmentation_fit # if (n - edx >= ebx) fit
+
+                # Not enough space, move to next row
+                xorl %edx, %edx
+                divl n1
+                incl %eax # eax = row + 1
+                mull n1
+
+                cmpl $0, (%edi,%eax,4) # if (v[row + 1] == 0)
+                jne memory_defragmentation_next_free_block
+            
+            memory_defragmentation_fit:
+                movl -4(%ebp), %edx # fd
+            memory_defragmentation_movefile:
+                cmpl $0, %ebx
+                jle memory_defragmentation_next_free_block
+
+                movl $0, (%edi, %ecx, 4)
+                movl %edx, (%edi, %eax, 4)
+
+                incl %eax
+                incl %ecx
+
+                decl %ebx
+                jmp memory_defragmentation_movefile
+    
+            memory_defragmentation_next_free_block:
+                cmpl m, %eax
+                jge memory_defragmentation_exit
+
+                cmpl $0, (%edi, %eax, 4)
+                je memory_defragmentation_next_free_block_exit
+
+                incl %eax
+                jmp memory_defragmentation_next_free_block
+        
+        memory_defragmentation_next_free_block_exit:
+            cmpl m, %ecx
+            jge memory_defragmentation_loop
+            movl %eax, %ecx
+
+            jmp memory_defragmentation_loop
+        
+        memory_defragmentation_loop_continue:
+            incl %ecx
+            jmp memory_defragmentation_loop 
+
+        memory_defragmentation_exit:
+            defrag_exit:
                 popl %edx
                 popl %edx
-                popl -8(%ebp)
-                
-                # pushl %edx
-                # pushl $format_printf
-                # call printf
-                # popl %edx
-                # popl %edx
-                
+                call print_all_files_fd_start_end
+                popl %ebp
+                ret
 
-                cmpl $0, -8(%ebp)
-                jne remove_null_lines_continue
-                
-
-                pushl -4(%ebp)
-                call remove_line
-                popl %edx
-
-
-            remove_null_lines_continue:
-                incl -4(%ebp)
-                # movl -4(%ebp),%eax
-                # incl %eax
-                jmp remove_null_lines_loop
-
-        defrag_exit:
-            popl %edx
-            popl %edx
-            call print_all_files_fd_start_end
-            popl %ebp
-            ret
+get_size_for_fd: # int get_size_for_fd(int fd)
+    pushl %ebp
+    movl %esp, %ebp
+    
+    # Get fd parameter
+    movl 8(%ebp), %edx
+    
+    # Setup counters
+    xorl %ecx, %ecx     # Position counter
+    xorl %eax, %eax     # Size counter
+    lea v, %edi         # Matrix base
+    
+    count_loop:
+        cmpl m, %ecx
+        jge count_done
+        
+        # Check if current element matches FD
+        cmpl %edx, (%edi,%ecx,4)
+        jne next_count
+        incl %eax           # Increment size counter
+        
+    next_count:
+        incl %ecx
+        jmp count_loop
+        
+    count_done:
+        # Convert blocks to KB (multiply by 8)
+        movl $8, %ebx
+        mull %ebx
+        
+        movl %ebp, %esp
+        popl %ebp
+        ret
         
 print_all_files_fd_start_end: # void print_fd_start_end()
     pushl %ebp
@@ -793,6 +848,135 @@ scanf_vector: # void scanf_vector()
         popl %ebp
         ret
 
+concrete_operation: # void concrete_operation(string dir_path)
+    pushl %ebp
+    movl %esp, %ebp
+    subl $0x1000, %esp
+
+    pushl $0 # -4(%ebp)  fd
+    pushl $0 # -8(%ebp)  size
+
+    pushl $dir_path
+    call chdir
+    add $8, %esp
+
+    pushl $dir_path
+    call opendir
+    add $4, %esp
+
+    movl %eax, %ebx # ebx = DIR*
+
+    read_dir_loop:
+        pushl %ebx
+        call readdir
+        cmpl $0, %eax
+        je concrete_exit
+        
+        movl %eax, %edi # edi = struct dirent *
+        
+        leal 11(%edi), %edi   # ->d_name
+        pushl $0              # O_RDONLY
+        pushl %edi            # filename pointer
+        call open
+        addl $8, %esp
+        movl %eax, -4(%ebp)      # -4(%ebp) = fd
+        cmpl $-1, %eax
+        je read_dir_loop
+
+        # call fstat
+        leal -200(%ebp), %eax
+        pushl %eax
+        pushl -4(%ebp)
+        call fstat
+        add $8, %esp
+
+        # check if directory
+        leal -200(%ebp), %eax
+        addl $16, %eax # ->st_mode
+        movl (%eax), %eax
+        andl $0xf000, %eax
+        cmpl $0x8000, %eax
+        jne read_dir_loop
+
+        # get size
+        leal -200(%ebp), %eax
+        addl $44, %eax # ->st_size
+        movl (%eax), %eax
+        movl $1024, -8(%ebp)
+        divl -8(%ebp)
+        movl %eax, -8(%ebp) # size in kb
+
+        # calculate fd
+        movl -4(%ebp), %eax
+        movl $255, -4(%ebp)
+        divl -4(%ebp)
+        inc %edx # edx = fd with formula
+        # int3 # breakpoint
+        
+        movl %edx, -4(%ebp)  # save modified fd
+
+
+        pushl %ebx
+
+        pushl -4(%ebp)
+        call get_size_for_fd
+        addl $4, %esp
+
+        popl %ebx
+
+        # If size > 0, FD exists
+        cmpl $0, %eax
+        jg print_duplicate
+
+        # Normal add path - FD doesn't exist
+        pushl -8(%ebp)
+        pushl -4(%ebp)
+        pushl $format_file_info
+        call printf
+        addl $12, %esp
+
+        pushl %ebx
+        pushl %ecx
+        pushl -8(%ebp)        # size in KB
+        pushl -4(%ebp)        # modified fd
+        call memory_add
+        popl %edx
+        popl %edx
+        popl %ecx
+        popl %ebx
+        jmp read_dir_loop
+
+        print_duplicate:
+            # # Print duplicate case
+            # pushl -8(%ebp)        # size
+            # pushl -4(%ebp)        # fd
+            # pushl $format_file_info
+            # call printf
+            # addl $12, %esp
+
+            pushl $0              # endY
+            pushl $0              # endX
+            pushl $0              # startY
+            pushl $0              # startX
+            pushl -4(%ebp)        # fd
+            pushl $format_memory_add
+            call printf
+            addl $24, %esp
+            
+            jmp read_dir_loop
+
+    concrete_exit:
+        # Close directory
+        pushl %ebx
+        call closedir
+        popl %ebx
+                
+        popl %edx
+        popl %edx
+
+        movl %ebp, %esp
+        popl %ebp
+        ret
 
 
 menu: # void menu()
@@ -838,8 +1022,6 @@ menu: # void menu()
         # call printf
         # popl %edx
         # popl %edx
-
-
 
         operation_1:
             movl $1, %ebx
@@ -990,8 +1172,8 @@ menu: # void menu()
             movl $4, %ebx
             cmpl tipOperatie, %ebx
             je defragmentation_operation
-            # jmp operation_5
-            jmp menu_exit
+            jmp operation_5
+            # jmp menu_exit
             defragmentation_operation:
                 pushl %eax
                 pushl %ebx
@@ -1004,19 +1186,25 @@ menu: # void menu()
                 popl %eax
                 # call print_vector
                 jmp menu_loop_continue
-        # operation_5:
-        #     movl $5, %ebx
-        #     cmpl tipOperatie, %ebx
-        #     je defragmentation_operation
-        #     jmp menu_exit
-        #     defragmentation_operation:
-        #         pushl %ebx
-        #         pushl %ecx
-        #         call memory_defragmentation
-        #         popl %ecx
-        #         popl %ebx
-        #         # call print_vector
-        #         jmp menu_loop_continue
+        operation_5:
+            movl $5, %ebx
+            cmpl tipOperatie, %ebx
+            je concrete_operation_call
+            jmp menu_exit
+            concrete_operation_call:
+                pushl %ecx # save counter
+
+                pushl $dir_path
+                pushl $format_dir
+                call scanf
+                popl %edx
+                popl %edx
+
+                
+                call concrete_operation
+                
+                popl %ecx
+                jmp menu_loop_continue
 
     menu_loop_continue:
         incl %ecx
@@ -1031,9 +1219,17 @@ menu: # void menu()
 .global main
 main:
     call initialize_matrix
-    # call print_matrix
     call menu
-    # call print_all_files_fd_start_end
+
+    # pushl $71
+    # call get_size_for_fd
+    # popl %edx
+
+    # pushl %eax
+    # pushl $format_printfn
+    # call printf
+    # popl %edx
+    # popl %edx
 
 et_exit:
     pushl $0

@@ -3,5 +3,7 @@ test.s
 test
 vector
 out.txt 
-matrix.s
+matrix.*
 matrix_org
+matrix
+con*
