@@ -9,6 +9,7 @@
     dir_path: .space 512
     filename: .space 256
     format_dir: .asciz "%s\n"
+    format_colon: .asciz ": "
     # format_file_info: .asciz "FD: %d, Size: %d KB\n"
     format_file_info: .asciz "%d\n%d\n"
     auxVar: .long 0
@@ -24,33 +25,79 @@
     n: .long 1024
     n1: .long 1025
     # m: .long 1048576 # n*n
-    m: .long 1049600 # n*(n+1) 1049600
+    m: .long 1049600 # n*(n+1) 1049600    
     v: .space 4198400 # 1025*1024*4 , 1025 = 1024 + 1 , 1 for border with -1 on the end of row
+
+    vector: .space 4198400   
+    # m1: .long 1049600 
+    m1: .long 1048576
+    v1: .space 4194304 
+    last_position: .long 0
 
 .text
 initialize_matrix: # void initialize_matrix()
     pushl %ebp
     movl %esp, %ebp
 
+    # First fill entire matrix with zeros
     xorl %ecx, %ecx                     # i = 0
-    lea v, %edi # %edi = *(v[0][0])
+    lea v, %edi                         # %edi = *(v[0])
 
-    initialize_matrix_loop:
-        cmpl n, %ecx  # ecx >= n 
+    fill_zeros_loop:
+        cmpl m, %ecx                    # Check if we've reached end of matrix
+        jge add_borders
+        
+        movl $0, (%edi,%ecx,4)         # Set element to 0
+        incl %ecx
+        jmp fill_zeros_loop
+
+    add_borders:
+        # Now add -1 borders at end of each row
+        xorl %ecx, %ecx                 # i = 0
+
+    border_loop:
+        cmpl n, %ecx                    # ecx >= n
         jge initialize_matrix_exit
+
+        movl n, %eax
+        incl %eax
+        imull %ecx, %eax               # i * (n+1)
+        addl n, %eax                   # i * (n+1) + n       
+        leal (%edi,%eax,4), %eax       # &v[i][j]
+        movl $-1, (%eax)               # Add border
+        incl %ecx
+        jmp border_loop
+
+    initialize_matrix_exit:
+        popl %ebp
+        ret
+
+initialize_matrix_defr: # void initialize_matrix_defr()
+    pushl %ebp
+    movl %esp, %ebp
+
+    movl $0, last_position
+
+    xorl %ecx, %ecx                     # i = 0
+    lea v1, %edi # %edi = *(v1[0][0])
+
+    initialize_matrix_defr_loop:
+        cmpl n, %ecx  # ecx >= n 
+        jge initialize_matrix_defr_exit
 
         movl n, %eax
         incl %eax
         imull %ecx, %eax  # i * (n+1)
         addl n, %eax  # i * (n+1) + n       
-        leal (%edi,%eax,4), %eax  # &v[i][j]
+        leal (%edi,%eax,4), %eax  # &v1[i][j]
         movl $-1, (%eax)
         incl %ecx  # j++
-        jmp initialize_matrix_loop
+        jmp initialize_matrix_defr_loop
 
-    initialize_matrix_exit:
+    initialize_matrix_defr_exit:
         popl %ebp
-        ret
+        ret 
+
 sum_vectorRange: # void sum_vectorRange(a,b)
     pushl %ebp
     movl %esp, %ebp
@@ -160,6 +207,41 @@ print_vector: # void print_vector()
 
         popl %ebp
         ret
+print_vector_defr: # void print_vector_defr()
+    pushl %ebp
+    movl %esp, %ebp
+
+    # for(int i=0;i<n;i++)
+    # { printf("%d\n", v1[i]); }
+
+    movl $0, %ecx                     # i = 0
+    lea v1, %edi # %edi = *(v[0])
+
+    print_vector_defr_loop:
+        cmp m, %ecx  # ecx >= n
+        jge print_vector_defr_exit
+
+        pushl %ecx # %ecx caller saved
+
+        pushl (%edi,%ecx,4) # v[i]
+        pushl $format_printf
+        call printf
+        popl %edx
+        popl %edx
+
+        popl %ecx
+
+        incl %ecx
+        jmp print_vector_defr_loop 
+
+
+    print_vector_defr_exit:
+        pushl $format_newline
+        call printf
+        popl %edx
+
+        popl %ebp
+        ret
 print_matrix: # void print_matrix()
     pushl %ebp
     movl %esp, %ebp
@@ -221,7 +303,67 @@ print_matrix: # void print_matrix()
 
         popl %ebp
         ret
+print_matrix_defr: # void print_matrix_defr()
+    pushl %ebp
+    movl %esp, %ebp
 
+    # for(int i=0;i<n;i++)
+    #   for(int j=0;j<n;j++)
+    #       { printf("%d\n", v[i][j]); }
+
+    movl i, %ecx                     # i = 0
+    lea v1, %edi # %edi = *(v[0][0])
+
+    print_matrix_defr_loop_i:
+        cmp n, %ecx  # ecx >= n
+        jge print_matrix_defr_exit
+
+        pushl %ecx # %ecx caller saved
+        xorl %ebx, %ebx
+
+    print_matrix_defr_loop_j:
+        cmpl n, %ebx  # ebx >= n
+        jge print_matrix_defr_next_row
+
+        movl %ecx, %eax
+        
+        pushl %ebx
+        movl n, %ebx
+        incl %ebx
+        imull %ebx, %eax  # i * (n+1)
+        popl %ebx
+
+        addl %ebx, %eax  # i * (n+1) + j
+
+        movl (%edi,%eax,4), %eax  # v[i][j]
+        
+        pushl %ecx
+        push %eax
+        push $format_printf
+        call printf
+        popl %edx
+        popl %edx
+        popl %ecx
+
+        incl %ebx  # j++
+        jmp print_matrix_defr_loop_j
+
+    print_matrix_defr_next_row:
+        push $format_newline
+        call printf
+        popl %edx
+
+        pop %ecx  # Restore i
+        incl %ecx  # i++
+        jmp print_matrix_defr_loop_i
+
+    print_matrix_defr_exit:
+        pushl $format_newline
+        call printf
+        popl %edx
+
+        popl %ebp
+        ret
 memory_add: # void memory_add(int fd, int size)
     pushl %ebp
     movl %esp, %ebp
@@ -504,135 +646,181 @@ memory_delete: # void memory_delete(int fd)
         popl %ebp
         ret
 
+move_elements_to_vector: # void move_elements_to_vector()
+    pushl %ebp
+    movl %esp, %ebp
+
+    # First initialize vector with zeros
+    xorl %ecx, %ecx     # Initialize counter
+    lea vector, %edi    # Get vector address
+
+    init_loop:
+        cmpl m, %ecx        # Check if we've reached end of vector
+        jge init_done
+        
+        movl $0, (%edi,%ecx,4)    # Set element to 0
+        incl %ecx
+        jmp init_loop
+
+    init_done:
+    # Original move logic starts here
+    xorl %ecx, %ecx     # Source index (v matrix)
+    xorl %ebx, %ebx     # Destination index (vector)
+    lea v, %esi         # Source array
+    lea vector, %edi    # Destination array
+
+    move_loop:
+        cmpl m, %ecx        # Check if we've reached end of v
+        jge move_exit
+
+        movl (%esi,%ecx,4), %eax    # Get current element
+        
+        # Check if element is 0 or -1
+        cmpl $0, %eax
+        je skip_element
+        cmpl $-1, %eax  
+        je skip_element
+        
+        # Element is valid, copy it to vector
+        movl %eax, (%edi,%ebx,4)
+        incl %ebx
+
+    skip_element:
+        incl %ecx
+        jmp move_loop
+
+    move_exit:
+        popl %ebp
+        ret
+
+add_elements_from_vector: # void add_elements_from_vector()
+    pushl %ebp
+    movl %esp, %ebp
+
+    pushl $0          # -4(%ebp): current row
+    pushl $0          # -8(%ebp): current col
+    pushl $0          # -12(%ebp): vector index
+    pushl $0          # -16(%ebp): current descriptor
+    pushl $0          # -20(%ebp): count of current descriptor
+
+    pushl %ebx
+    pushl %esi
+    pushl %edi
+
+    # Initialize matrix with zeros first
+    call initialize_matrix
+
+    xorl %ecx, %ecx           
+    lea vector, %esi          # source (vector)
+    lea v, %edi               # destination (matrix)
+    movl $0, -4(%ebp)        
+    movl $0, -8(%ebp)        
+
+    add_elements_loop:
+        movl (%esi,%ecx,4), %eax
+        
+        cmpl $0, %eax
+        je add_elements_done
+
+        # If this is a new descriptor
+        cmpl -16(%ebp), %eax
+        je same_descriptor
+        
+        # Count how many of this descriptor we have
+        movl %eax, -16(%ebp)     # Save current descriptor
+        movl %ecx, %edx          # Save current position
+        movl $0, -20(%ebp)       # Reset counter
+
+    count_descriptor:
+        movl (%esi,%edx,4), %eax
+        cmpl $0, %eax            # Check if we hit end
+        je check_fit
+        cmpl -16(%ebp), %eax     # Compare with current descriptor
+        jne check_fit
+        incl -20(%ebp)           # Increment counter
+        incl %edx
+        jmp count_descriptor
+
+    check_fit:
+        # If remaining space in row < count, move to next row
+        movl n, %eax
+        subl -8(%ebp), %eax      # Remaining space in current row
+        cmpl -20(%ebp), %eax     # Compare with needed space
+        jge same_descriptor      # If enough space, continue
+        
+        # Move to next row
+        movl $0, -8(%ebp)        # Reset column
+        incl -4(%ebp)            # Next row
+
+    same_descriptor:
+        # Calculate matrix position
+        movl -4(%ebp), %eax      # Get current row
+        movl n1, %ebx            # Get n+1 (row width)
+        mull %ebx                # row * (n+1)
+        addl -8(%ebp), %eax      # Add column offset
+        
+        # Store element in matrix
+        movl (%esi,%ecx,4), %ebx
+        movl %ebx, (%edi,%eax,4)
+        
+        # Update column
+        incl -8(%ebp)
+        
+        # If we hit end of row, move to next row
+        movl -8(%ebp), %eax
+        cmpl n, %eax
+        jl continue_same_row
+        
+        # Move to next row
+        movl $0, -8(%ebp)        # Reset column
+        incl -4(%ebp)            # Increment row
+
+    continue_same_row:
+        incl %ecx                # Move to next vector element
+        jmp add_elements_loop
+
+    add_elements_done:
+        # Restore registers
+        popl %edi
+        popl %esi
+        popl %ebx
+        
+        addl $20, %esp
+        
+        movl %ebp, %esp
+        popl %ebp
+        ret
 memory_defragmentation: # void memory_defragmentation()
     pushl %ebp
     movl %esp, %ebp
 
-    # eax = a 
-    # ebx = b
+    # pushl $format_debug_print
+    # call printf
+    # popl %eax
+    # popl %eax
 
-    # se muta ambele daca v[b] != 0
-    # se muta b daca v[b] == 0
-
-    xorl %eax, %eax
-    xorl %ebx, %ebx
-
-    pushl $0 # -4(%ebp) fd
-    pushl $0 # -8(%ebp) free_blocks_until_end_row
-
-    # eax start of first block free
-    # ebx end of block with a fd
-    # ecx = i
-    # edx = fd
+    # call print_all_files_fd_start_end
 
 
-    memory_defragmentation_init: # Find first block free 
-        cmpl m, %eax  # eax >= m
-        jge memory_defragmentation_exit
+    # Move elements to vector
+    call move_elements_to_vector
 
-        cmpl $0, (%edi,%eax,4) # if(v[a] == 0)
-        je memory_defragmentation_init_exit
-        
-        incl %eax
-        jmp memory_defragmentation_init
-    memory_defragmentation_init_exit:
-        movl %eax, %ecx
-        
-    lea v, %edi # %edi = *(v[0])
-    memory_defragmentation_loop:
-        cmpl m, %ecx  # ecx >= m
-        jge memory_defragmentation_exit
+    # Initialize matrix (empty it)
+    call initialize_matrix
 
-        # movl (%edi,%ebx,4), %edx
-        # movl %edx, (%edi,%eax,4)
+    # Add elements back from vector
+    call add_elements_from_vector
 
-        cmpl $0, (%edi,%ecx,4) # if(v[ecx] == 0)
-        je memory_defragmentation_loop_continue
+    # Debug print after operations
+    # call debug_print
 
-        movl %ecx, %ebx
-        movl (%edi,%ecx,4), %edx
-        movl %edx, -4(%ebp)
+    call print_all_files_fd_start_end
 
-        memory_defragmentation_loop2:
-            cmpl m, %ebx  # ebx >= m
-            jge memory_defragmentation_loop2_exit
+    popl %eax
 
-            cmpl %edx, (%edi,%ebx,4) # if(v[ebx] == fd)
-            jne memory_defragmentation_loop2_exit
-
-            memory_defragmentation_loop2_continue:
-                incl %ebx
-                jmp memory_defragmentation_loop2
-
-            memory_defragmentation_loop2_exit:
-                subl %ecx, %ebx # ebx = ebx - ecx
-
-                # Calculate row and column
-                pushl %eax
-                xorl %edx, %edx
-                divl n1
-                popl %eax # eax = row, edx = column
-                
-                # Free blocks until end of row
-                movl $1024, -8(%ebp)
-                subl %edx, -8(%ebp) # -8(%ebp) = n - edx
-
-                cmpl %ebx, n1
-                jge memory_defragmentation_fit # if (n - edx >= ebx) fit
-
-                # Not enough space, move to next row
-                xorl %edx, %edx
-                divl n1
-                incl %eax # eax = row + 1
-                mull n1
-
-                cmpl $0, (%edi,%eax,4) # if (v[row + 1] == 0)
-                jne memory_defragmentation_next_free_block
-            
-            memory_defragmentation_fit:
-                movl -4(%ebp), %edx # fd
-            memory_defragmentation_movefile:
-                cmpl $0, %ebx
-                jle memory_defragmentation_next_free_block
-
-                movl $0, (%edi, %ecx, 4)
-                movl %edx, (%edi, %eax, 4)
-
-                incl %eax
-                incl %ecx
-
-                decl %ebx
-                jmp memory_defragmentation_movefile
-    
-            memory_defragmentation_next_free_block:
-                cmpl m, %eax
-                jge memory_defragmentation_exit
-
-                cmpl $0, (%edi, %eax, 4)
-                je memory_defragmentation_next_free_block_exit
-
-                incl %eax
-                jmp memory_defragmentation_next_free_block
-        
-        memory_defragmentation_next_free_block_exit:
-            cmpl m, %ecx
-            jge memory_defragmentation_loop
-            movl %eax, %ecx
-
-            jmp memory_defragmentation_loop
-        
-        memory_defragmentation_loop_continue:
-            incl %ecx
-            jmp memory_defragmentation_loop 
-
-        memory_defragmentation_exit:
-            defrag_exit:
-                popl %edx
-                popl %edx
-                call print_all_files_fd_start_end
-                popl %ebp
-                ret
-
+    movl %ebp, %esp
+    popl %ebp
+    ret
 get_size_for_fd: # int get_size_for_fd(int fd)
     pushl %ebp
     movl %esp, %ebp
@@ -899,7 +1087,7 @@ concrete_operation: # void concrete_operation(string dir_path)
         jne read_dir_loop
 
         # get size
-        leal -200(%ebp), %eax
+        leal -200(%ebp), %eax # size of struct stat 
         addl $44, %eax # ->st_size
         movl (%eax), %eax
         movl $1024, -8(%ebp)
@@ -948,11 +1136,11 @@ concrete_operation: # void concrete_operation(string dir_path)
 
         print_duplicate:
             # # Print duplicate case
-            # pushl -8(%ebp)        # size
-            # pushl -4(%ebp)        # fd
-            # pushl $format_file_info
-            # call printf
-            # addl $12, %esp
+            pushl -8(%ebp)        # size
+            pushl -4(%ebp)        # fd
+            pushl $format_file_info
+            call printf
+            addl $12, %esp
 
             pushl $0              # endY
             pushl $0              # endX
@@ -977,8 +1165,74 @@ concrete_operation: # void concrete_operation(string dir_path)
         movl %ebp, %esp
         popl %ebp
         ret
+debug_print: # void debug_print()
+    pushl %ebp
+    movl %esp, %ebp
 
+    xorl %ecx, %ecx    # row counter = 0
+    lea v, %edi        # matrix base address
 
+    debug_print_row_loop:
+        cmpl n, %ecx       # check if we've printed all rows
+        jge debug_print_exit
+
+        # Print row number
+        pushl %ecx
+        pushl %ecx
+        pushl $format_printf
+        call printf
+        popl %edx
+        popl %edx
+
+        # Print colon and space
+        pushl $format_colon
+        call printf
+        popl %edx
+        popl %ecx
+
+        # Initialize column counter
+        xorl %ebx, %ebx    # column counter = 0
+        pushl %ecx         # save row counter
+
+    debug_print_col_loop:
+        cmpl n1, %ebx      # check if we've printed all columns (including padding)
+        jge debug_print_next_row
+
+        # Calculate current position
+        movl n1, %eax      # load n+1
+        mull (%esp)        # multiply by row number (saved on stack)
+        addl %ebx, %eax    # add column number
+        
+        # Print current element
+        pushl %ebx
+        pushl (%edi,%eax,4)
+        pushl $format_printf
+        call printf
+        popl %edx
+        popl %edx
+        popl %ebx
+
+        incl %ebx          # next column
+        jmp debug_print_col_loop
+
+    debug_print_next_row:
+        # Print newline
+        pushl $format_newline
+        call printf
+        popl %edx
+
+        popl %ecx          # restore row counter
+        incl %ecx          # next row
+        jmp debug_print_row_loop
+
+    debug_print_exit:
+        # Print final newline
+        pushl $format_newline
+        call printf
+        popl %edx
+
+        popl %ebp
+        ret
 menu: # void menu()
     # – 1 - ADD
     # – 2 - GET
@@ -1184,6 +1438,7 @@ menu: # void menu()
                 popl %ecx
                 popl %ebx
                 popl %eax
+                # call debug_print
                 # call print_vector
                 jmp menu_loop_continue
         operation_5:
@@ -1217,20 +1472,9 @@ menu: # void menu()
 
 
 .global main
-main:
+main: # void main()
     call initialize_matrix
     call menu
-
-    # pushl $71
-    # call get_size_for_fd
-    # popl %edx
-
-    # pushl %eax
-    # pushl $format_printfn
-    # call printf
-    # popl %edx
-    # popl %edx
-
 et_exit:
     pushl $0
     call fflush
